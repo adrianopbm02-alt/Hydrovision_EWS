@@ -86,7 +86,7 @@ const CONFIG = {
   // 7. PARAMETER MQTT BROKER
   MQTT: {
     BROKER: "broker.hivemq.com",
-    PORT: 8000,
+    PORT: 8884,
     TOPIC_TELEMETRY: "ews/musi/telemetry",
     TOPIC_COMMAND: "ews/musi/command",
     TOPIC_UPDATE_COEF: "ews/musi/update_coef"
