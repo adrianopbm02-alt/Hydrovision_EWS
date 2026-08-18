@@ -320,12 +320,12 @@ function initMQTT() {
         if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(2) + " V";
         if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = data.v_pan.toFixed(2) + " V";
         
-        // PEMBACAAN TEGANGAN ESP32 DINAMIS
+        // Pembacaan Tegangan ESP32 Dinamis
         if (data.v_esp !== undefined) {
           document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
         }
 
-        // LOGIKA SUHU INTERNAL ESP32-S3 (HIJAU AMAN, MERAH JIKA >= 65°C)
+        // Logika Suhu Internal ESP32-S3 (Hijau normal, Merah jika >= 65°C)
         if (data.temp_esp !== undefined) {
           const tempVal = data.temp_esp;
           const tempEl = document.getElementById("val-temp-esp");
@@ -335,12 +335,10 @@ function initMQTT() {
             tempEl.innerText = tempVal.toFixed(1) + " °C";
 
             if (tempVal >= 65.0) {
-              // MERAH: OVERHEAT / MELEBIHI BATAS
               tempEl.className = "text-2xl font-black text-red-500 transition-colors";
               descEl.className = "text-[10px] font-bold text-red-400 mt-0.5";
               descEl.innerText = "! SUHU TINGGI !";
             } else {
-              // HIJAU: AMAN / NORMAL
               tempEl.className = "text-2xl font-black text-emerald-400 transition-colors";
               descEl.className = "text-[10px] font-medium text-emerald-400 mt-0.5";
               descEl.innerText = "Suhu Normal";
@@ -348,7 +346,7 @@ function initMQTT() {
           }
         }
 
-        // Status Sumber Listrik Relay (false: Baterai/Solar, true: PLN)
+        // Status Sumber Listrik Relay
         const relayTxt = document.getElementById("val-relay-status");
         if (relayTxt && data.relay !== undefined) {
           if (data.relay) {
@@ -399,6 +397,24 @@ function triggerRelayRemote() {
   message.destinationName = CONFIG.MQTT.TOPIC_COMMAND;
   client.send(message);
   alert("Perintah Pergantian Sumber Listrik Relay Terkirim ke ESP32-S3!");
+}
+
+// Kirim Offset Kalibrasi Baru ke ESP32-S3
+function updateSensorOffsetsRemote() {
+  if (!client || !client.isConnected()) {
+    alert("MQTT belum terhubung ke broker!");
+    return;
+  }
+
+  const offPh = document.getElementById("input-offset-ph").value || "0.0";
+  const offTurb = document.getElementById("input-offset-turb").value || "0.0";
+
+  const payload = `${offPh},${offTurb}`;
+  const message = new Paho.MQTT.Message(payload);
+  message.destinationName = CONFIG.MQTT.TOPIC_UPDATE_OFFSET;
+  client.send(message);
+
+  alert(`Offset Berhasil Dikirim ke ESP32!\nOffset pH: ${offPh}\nOffset Turbidity: ${offTurb}`);
 }
 
 function updateCoefficientsRemote() {

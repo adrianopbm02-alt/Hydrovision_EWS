@@ -89,6 +89,7 @@ const CONFIG = {
     PORT: 8884,
     TOPIC_TELEMETRY: "ews/musi/telemetry",
     TOPIC_COMMAND: "ews/musi/command",
-    TOPIC_UPDATE_COEF: "ews/musi/update_coef"
+    TOPIC_UPDATE_COEF: "ews/musi/update_coef",
+    TOPIC_UPDATE_OFFSET: "ews/musi/update_offset"
   }
 };
