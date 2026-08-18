@@ -9,7 +9,7 @@ let turbChartInstance = null;
 let client = null;
 let lastWebSheetLogTime = 0;
 
-// Masukkan URL Deployment Apps Script Anda di sini
+// URL Deployment Apps Script
 const GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxaIKVPcmTRTnd23GtOg1-ov9zMEdwa_Bh_1hsisQpEDMops9_gr0UmMw657axUyrCO/exec";
 
 const MAX_CHART_POINTS = 20;
@@ -320,7 +320,17 @@ function initMQTT() {
         // Telemetri Sensor Kualitas Air & Tegangan
         if (data.ph !== undefined) document.getElementById("val-ph").innerText = data.ph.toFixed(2);
         if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
-        if (data.dosis !== undefined) document.getElementById("val-dosis").innerText = data.dosis.toFixed(2);
+        
+        // HITUNG DOSIS MURNI ML (TIDAK TERKUNCI DI 40.00)
+        let realDosis = 0;
+        if (data.ph !== undefined && data.turb !== undefined) {
+          realDosis = 63.8948 + (-3.5321 * data.ph) + (0.071557 * data.turb);
+          if (realDosis < 0) realDosis = 0;
+          document.getElementById("val-dosis").innerText = realDosis.toFixed(2);
+        } else if (data.dosis !== undefined) {
+          document.getElementById("val-dosis").innerText = data.dosis.toFixed(2);
+        }
+
         if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(2) + " V";
         if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = data.v_pan.toFixed(2) + " V";
         
@@ -371,7 +381,7 @@ function initMQTT() {
         const nowTs = Date.now();
         if (nowTs - lastWebSheetLogTime > 300000 || lastWebSheetLogTime === 0) {
           lastWebSheetLogTime = nowTs;
-          sendTelemetryToGoogleSheetsFromWeb(data);
+          sendTelemetryToGoogleSheetsFromWeb(data, realDosis);
         }
 
       } catch (e) {
@@ -400,14 +410,18 @@ function initMQTT() {
   });
 }
 
-// Kirim Data Telemetri ke Google Sheets via Fetch API
-function sendTelemetryToGoogleSheetsFromWeb(data) {
+// Kirim Data Telemetri 8 Kolom ke Google Sheets via Fetch API
+function sendTelemetryToGoogleSheetsFromWeb(data, calculatedDosis) {
   if (!GSHEET_WEBAPP_URL || GSHEET_WEBAPP_URL.includes("GANTI_DENGAN_URL")) return;
+
+  const dosisFinal = (calculatedDosis !== undefined && calculatedDosis > 0) 
+    ? calculatedDosis.toFixed(2) 
+    : ((data.dosis !== undefined) ? data.dosis.toFixed(2) : "0");
 
   const payload = new URLSearchParams({
     ph: (data.ph !== undefined) ? data.ph.toFixed(2) : "0",
     turbidity: (data.turb !== undefined) ? data.turb.toFixed(1) : "0",
-    koagulan: (data.dosis !== undefined) ? data.dosis.toFixed(2) : "0",
+    koagulan: dosisFinal,
     v_bat: (data.v_bat !== undefined) ? data.v_bat.toFixed(2) : "0",
     v_panel: (data.v_pan !== undefined) ? data.v_pan.toFixed(2) : "0",
     relay: data.relay ? "PLN" : "BATERAI/SOLAR",
@@ -421,7 +435,7 @@ function sendTelemetryToGoogleSheetsFromWeb(data) {
     body: payload.toString()
   })
   .then(() => {
-    console.log("[GSHEETS] Telemetri 8 kolom berhasil dikirim ke Spreadsheet!");
+    console.log("[GSHEETS] Telemetri 8 kolom (Dosis Riil) berhasil dikirim ke Spreadsheet!");
   })
   .catch((err) => {
     console.error("[GSHEETS] Gagal mengirim ke Spreadsheet:", err);
