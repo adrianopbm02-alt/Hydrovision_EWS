@@ -7,6 +7,10 @@ let heartbeatInterval = null;
 let phChartInstance = null;
 let turbChartInstance = null;
 let client = null;
+let lastWebSheetLogTime = 0;
+
+// Masukkan URL Deployment Apps Script Anda di sini
+const GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxaIKVPcmTRTnd23GtOg1-ov9zMEdwa_Bh_1hsisQpEDMops9_gr0UmMw657axUyrCO/exec";
 
 const MAX_CHART_POINTS = 20;
 
@@ -285,7 +289,7 @@ function startESPHeartbeatChecker() {
   }, 1000);
 }
 
-// MQTT Logics (WSS Secure untuk Vercel HTTPS)
+// Logika MQTT
 function initMQTT() {
   const clientID = "Web_EWS_Musi_" + Math.random().toString(16).substr(2, 8);
   client = new Paho.MQTT.Client(CONFIG.MQTT.BROKER, CONFIG.MQTT.PORT, clientID);
@@ -325,7 +329,7 @@ function initMQTT() {
           document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
         }
 
-        // Logika Suhu Internal ESP32-S3 (Hijau normal, Merah jika >= 65°C)
+        // Suhu Internal ESP32-S3
         if (data.temp_esp !== undefined) {
           const tempVal = data.temp_esp;
           const tempEl = document.getElementById("val-temp-esp");
@@ -362,6 +366,14 @@ function initMQTT() {
         if (data.ph !== undefined && data.turb !== undefined) {
           pushChartData(data.ph, data.turb);
         }
+
+        // Auto Log ke Google Spreadsheet tiap 5 Menit (300.000 ms) via Browser Web
+        const nowTs = Date.now();
+        if (nowTs - lastWebSheetLogTime > 300000 || lastWebSheetLogTime === 0) {
+          lastWebSheetLogTime = nowTs;
+          sendTelemetryToGoogleSheetsFromWeb(data);
+        }
+
       } catch (e) {
         console.error(e);
       }
@@ -369,7 +381,7 @@ function initMQTT() {
   };
 
   client.connect({
-    useSSL: true, // Wajib true untuk Vercel HTTPS
+    useSSL: true,
     timeout: 10,
     keepAliveInterval: 30,
     cleanSession: true,
@@ -385,6 +397,34 @@ function initMQTT() {
       if (mqttText) mqttText.innerText = "Gagal Konek";
       setTimeout(initMQTT, 5000);
     }
+  });
+}
+
+// Kirim Data Telemetri ke Google Sheets via Fetch API
+function sendTelemetryToGoogleSheetsFromWeb(data) {
+  if (!GSHEET_WEBAPP_URL || GSHEET_WEBAPP_URL.includes("GANTI_DENGAN_URL")) return;
+
+  const payload = new URLSearchParams({
+    ph: (data.ph !== undefined) ? data.ph.toFixed(2) : "0",
+    turbidity: (data.turb !== undefined) ? data.turb.toFixed(1) : "0",
+    koagulan: (data.dosis !== undefined) ? data.dosis.toFixed(2) : "0",
+    v_bat: (data.v_bat !== undefined) ? data.v_bat.toFixed(2) : "0",
+    v_panel: (data.v_pan !== undefined) ? data.v_pan.toFixed(2) : "0",
+    relay: data.relay ? "PLN" : "BATERAI/SOLAR",
+    temp_esp: (data.temp_esp !== undefined) ? data.temp_esp.toFixed(1) : "0"
+  });
+
+  fetch(GSHEET_WEBAPP_URL, {
+    method: "POST",
+    mode: "no-cors",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: payload.toString()
+  })
+  .then(() => {
+    console.log("[GSHEETS] Telemetri 8 kolom berhasil dikirim ke Spreadsheet!");
+  })
+  .catch((err) => {
+    console.error("[GSHEETS] Gagal mengirim ke Spreadsheet:", err);
   });
 }
 
