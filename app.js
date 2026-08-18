@@ -328,11 +328,23 @@ function initMQTT() {
           espText.className = "text-xs font-bold text-emerald-400";
         }
 
-        // Tampilan Kartu Sensor Real-Time
-        if (data.ph !== undefined) document.getElementById("val-ph").innerText = data.ph.toFixed(2);
-        if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
-        
-        // Hitung Dosis Murni ML Real-time
+        // ========================================================
+        // 1. FILTER SOFTWARE TEGANGAN PANEL SURYA (ELIMINASI BOCORAN AKI)
+        // ========================================================
+        let rawVpan = (data.v_pan !== undefined) ? data.v_pan : 0;
+        let vBat = (data.v_bat !== undefined) ? data.v_bat : 0;
+        let filteredVPan = rawVpan;
+
+        // Jika selisih tegangan solar dengan aki sangat dekat (backfeed SCC)
+        // dan tidak lebih tinggi dari baterai + 0.3V (tidak ada arus pengisian aktif),
+        // maka anggap panel surya 0.00 V (malam / tidak ada sinar matahari)
+        if (rawVpan <= (vBat + 0.30) && Math.abs(rawVpan - vBat) <= 0.25) {
+          filteredVPan = 0.0;
+        }
+
+        // ========================================================
+        // 2. HITUNG DOSIS MURNI ML (TIDAK TERKUNCI DI 40.00 PPM)
+        // ========================================================
         let realDosis = 0;
         if (data.ph !== undefined && data.turb !== undefined) {
           realDosis = 63.8948 + (-3.5321 * data.ph) + (0.071557 * data.turb);
@@ -342,8 +354,14 @@ function initMQTT() {
           document.getElementById("val-dosis").innerText = data.dosis.toFixed(2);
         }
 
+        // Tampilan Kartu Sensor Real-Time
+        if (data.ph !== undefined) document.getElementById("val-ph").innerText = data.ph.toFixed(2);
+        if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
         if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(2) + " V";
-        if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = data.v_pan.toFixed(2) + " V";
+        
+        // Tampilkan tegangan panel surya yang sudah difilter
+        document.getElementById("val-vpan").innerText = filteredVPan.toFixed(2) + " V";
+        
         if (data.v_esp !== undefined) document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
 
         if (data.temp_esp !== undefined) {
@@ -382,13 +400,13 @@ function initMQTT() {
         }
 
         // ============================================================
-        // AKUMULASI SAMPEL UNTUK RATA-RATA 5 MENIT
+        // 3. AKUMULASI SAMPEL UNTUK RATA-RATA 5 MENIT
         // ============================================================
         if (data.ph !== undefined && data.turb !== undefined) {
           batchSamples.phSum += data.ph;
           batchSamples.turbSum += data.turb;
           batchSamples.vbatSum += (data.v_bat || 0);
-          batchSamples.vpanSum += (data.v_pan || 0);
+          batchSamples.vpanSum += filteredVPan; // Nilai solar terfilter
           batchSamples.tempSum += (data.temp_esp || 0);
           batchSamples.relayStatusLast = data.relay ? "PLN" : "BATERAI/SOLAR";
           batchSamples.count += 1;
