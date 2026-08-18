@@ -1,3 +1,7 @@
+/**
+ * LOGIKA SISTEM DASHBOARD EWS HYDROVISION, SUHU ESP32-S3, REALTIME CHART & MQTT
+ */
+
 let lastTelemetryTime = 0;
 let heartbeatInterval = null;
 let phChartInstance = null;
@@ -6,12 +10,14 @@ let client = null;
 
 const MAX_CHART_POINTS = 20;
 
+// Inisialisasi saat DOM Selesai Dimuat
 document.addEventListener("DOMContentLoaded", () => {
   renderLogos();
   renderTeamInfo();
   initCharts();
 });
 
+// Render 7 Logo Resmi
 function renderLogos() {
   const loginLogoRow = document.getElementById("login-logo-row");
   const hdrLogoRow = document.getElementById("hdr-logo-row");
@@ -37,6 +43,7 @@ function renderLogos() {
   }
 }
 
+// Render Data Dosen, Tim, & Kontak Sosial Media
 function renderTeamInfo() {
   if (typeof CONFIG === 'undefined') return;
 
@@ -60,6 +67,7 @@ function renderTeamInfo() {
     if (txt) txt.innerText = CONFIG.SOSIAL_MEDIA.EMAIL_TIM;
   }
 
+  // Profil Dosen
   const dosenImg = document.getElementById("dosen-foto");
   if (dosenImg) dosenImg.src = CONFIG.DOSEN.FOTO;
   const dNama = document.getElementById("dosen-nama");
@@ -69,6 +77,7 @@ function renderTeamInfo() {
   const dInst = document.getElementById("dosen-instansi");
   if (dInst) dInst.innerText = CONFIG.DOSEN.INSTANSI;
 
+  // Profil 5 Anggota Tim
   const teamGrid = document.getElementById("team-grid-container");
   if (teamGrid) {
     teamGrid.innerHTML = "";
@@ -93,12 +102,14 @@ function renderTeamInfo() {
     });
   }
 
+  // Link Google Spreadsheet
   const gsheetLink = document.getElementById("link-gsheet-btn");
   if (gsheetLink) {
     gsheetLink.href = CONFIG.SPREADSHEET_URL;
   }
 }
 
+// Inisialisasi Grafik Real-Time
 function initCharts() {
   const ctxPH = document.getElementById("chart-ph")?.getContext("2d");
   const ctxTurb = document.getElementById("chart-turb")?.getContext("2d");
@@ -183,6 +194,7 @@ function pushChartData(phVal, turbVal) {
   }
 }
 
+// Navigasi Menu Tab
 function switchTab(tabId) {
   const tabs = ["tab-telemetry", "tab-charts", "tab-sheets", "tab-team"];
   const navBtns = ["nav-btn-telemetry", "nav-btn-charts", "nav-btn-sheets", "nav-btn-team"];
@@ -273,6 +285,7 @@ function startESPHeartbeatChecker() {
   }, 1000);
 }
 
+// MQTT Logics (WSS Secure untuk Vercel HTTPS)
 function initMQTT() {
   const clientID = "Web_EWS_Musi_" + Math.random().toString(16).substr(2, 8);
   client = new Paho.MQTT.Client(CONFIG.MQTT.BROKER, CONFIG.MQTT.PORT, clientID);
@@ -291,6 +304,7 @@ function initMQTT() {
         const data = JSON.parse(message.payloadString);
         lastTelemetryTime = Date.now();
 
+        // Update Indikator ESP32 Online
         const espPing = document.getElementById("esp-status-ping");
         const espText = document.getElementById("esp-status-text");
         if (espPing) espPing.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
@@ -299,13 +313,38 @@ function initMQTT() {
           espText.className = "text-xs font-bold text-emerald-400";
         }
 
+        // Telemetri Sensor Kualitas Air & Tegangan
         if (data.ph !== undefined) document.getElementById("val-ph").innerText = data.ph.toFixed(2);
         if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
         if (data.dosis !== undefined) document.getElementById("val-dosis").innerText = data.dosis.toFixed(2);
         if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(1) + " V";
-        if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = data.v_pan.toFixed(1) + " V";
-        if (data.v_esp !== undefined) document.getElementById("val-vesp").innerText = data.v_esp.toFixed(1) + " V";
+        if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = (data.v_pan ? data.v_pan.toFixed(1) : "0.0") + " V";
+        if (data.v_esp !== undefined) document.getElementById("val-vesp").innerText = (data.v_esp ? data.v_esp.toFixed(1) : "5.0") + " V";
 
+        // LOGIKA SUHU INTERNAL ESP32-S3 (HIJAU AMAN, MERAH JIKA >= 65°C)
+        if (data.temp_esp !== undefined) {
+          const tempVal = data.temp_esp;
+          const tempEl = document.getElementById("val-temp-esp");
+          const descEl = document.getElementById("desc-temp-esp");
+
+          if (tempEl && descEl) {
+            tempEl.innerText = tempVal.toFixed(1) + " °C";
+
+            if (tempVal >= 65.0) {
+              // MERAH: OVERHEAT / MELEBIHI BATAS
+              tempEl.className = "text-2xl font-black text-red-500 transition-colors";
+              descEl.className = "text-[10px] font-bold text-red-400 mt-0.5";
+              descEl.innerText = "! SUHU TINGGI !";
+            } else {
+              // HIJAU: AMAN / NORMAL
+              tempEl.className = "text-2xl font-black text-emerald-400 transition-colors";
+              descEl.className = "text-[10px] font-medium text-emerald-400 mt-0.5";
+              descEl.innerText = "Suhu Normal";
+            }
+          }
+        }
+
+        // Status Sumber Listrik Relay (false: Baterai/Solar, true: PLN)
         const relayTxt = document.getElementById("val-relay-status");
         if (relayTxt && data.relay !== undefined) {
           if (data.relay) {
@@ -317,6 +356,7 @@ function initMQTT() {
           }
         }
 
+        // Push data ke grafik
         if (data.ph !== undefined && data.turb !== undefined) {
           pushChartData(data.ph, data.turb);
         }
@@ -327,7 +367,7 @@ function initMQTT() {
   };
 
   client.connect({
-    useSSL: true,
+    useSSL: true, // Wajib true untuk Vercel HTTPS
     timeout: 10,
     keepAliveInterval: 30,
     cleanSession: true,
