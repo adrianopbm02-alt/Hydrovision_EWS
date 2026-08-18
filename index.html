@@ -100,7 +100,7 @@
       </div>
     </header>
 
-    <!-- TAB MENU BAR (RESPONSIF MOBILE / DESKTOP) -->
+    <!-- TAB MENU BAR -->
     <div class="max-w-7xl mx-auto px-4 mt-6">
       <div class="flex items-center justify-start sm:justify-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         <button id="nav-btn-telemetry" onclick="switchTab('tab-telemetry')" class="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs bg-blue-600 text-white shadow-lg shadow-blue-500/30 transition whitespace-nowrap">
@@ -124,7 +124,7 @@
       <!-- ==================== TAB 1: TELEMETRI & KONTROL ==================== -->
       <div id="tab-telemetry" class="space-y-6">
         
-        <!-- GRID KARTU SENSOR (6 KOLOM DENGAN SUHU ESP32-S3) -->
+        <!-- GRID KARTU SENSOR (6 KOLOM) -->
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <!-- pH Air -->
           <div class="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-md">
@@ -166,17 +166,17 @@
             <p class="text-[10px] text-slate-500 mt-0.5">Bus INA1</p>
           </div>
 
-          <!-- Teg. ESP 5V -->
+          <!-- Teg. ESP 5V (Dinamis riil) -->
           <div class="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-md">
             <div class="flex justify-between items-center text-slate-400 mb-1">
               <span class="text-[10px] font-bold uppercase">Teg. ESP32</span>
               <i class="fa-solid fa-microchip text-emerald-400 text-sm"></i>
             </div>
-            <div id="val-vesp" class="text-2xl font-black text-emerald-400">5.0 V</div>
+            <div id="val-vesp" class="text-2xl font-black text-emerald-400">-- V</div>
             <p class="text-[10px] text-slate-500 mt-0.5">Bus INA4 (5V)</p>
           </div>
 
-          <!-- KARTU SUHU INTERNAL CHIP ESP32-S3 (BERUBAH WARNA HIJAU / MERAH) -->
+          <!-- Suhu Chip ESP32-S3 (Warna Hijau Aman / Merah Peringatan) -->
           <div class="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-md">
             <div class="flex justify-between items-center text-slate-400 mb-1">
               <span class="text-[10px] font-bold uppercase">Suhu Chip ESP</span>

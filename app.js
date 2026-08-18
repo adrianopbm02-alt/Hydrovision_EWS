@@ -317,9 +317,13 @@ function initMQTT() {
         if (data.ph !== undefined) document.getElementById("val-ph").innerText = data.ph.toFixed(2);
         if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
         if (data.dosis !== undefined) document.getElementById("val-dosis").innerText = data.dosis.toFixed(2);
-        if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(1) + " V";
-        if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = (data.v_pan ? data.v_pan.toFixed(1) : "0.0") + " V";
-        if (data.v_esp !== undefined) document.getElementById("val-vesp").innerText = (data.v_esp ? data.v_esp.toFixed(1) : "5.0") + " V";
+        if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(2) + " V";
+        if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = data.v_pan.toFixed(2) + " V";
+        
+        // PEMBACAAN TEGANGAN ESP32 DINAMIS
+        if (data.v_esp !== undefined) {
+          document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
+        }
 
         // LOGIKA SUHU INTERNAL ESP32-S3 (HIJAU AMAN, MERAH JIKA >= 65°C)
         if (data.temp_esp !== undefined) {
