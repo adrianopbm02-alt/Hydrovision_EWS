@@ -7,10 +7,21 @@ let heartbeatInterval = null;
 let phChartInstance = null;
 let turbChartInstance = null;
 let client = null;
-let lastWebSheetLogTime = 0;
+
+// VARIABEL PENAMPUNG DATA BUFFER UNTUK RATA-RATA 5 MENIT
+let lastWebSheetLogTime = Date.now();
+let batchSamples = {
+  phSum: 0,
+  turbSum: 0,
+  vbatSum: 0,
+  vpanSum: 0,
+  tempSum: 0,
+  relayStatusLast: "BATERAI/SOLAR",
+  count: 0
+};
 
 // URL Deployment Apps Script
-const GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxaIKVPcmTRTnd23GtOg1-ov9zMEdwa_Bh_1hsisQpEDMops9_gr0UmMw657axUyrCO/exec";
+const GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxdI6_nWo9qzFERMl-nePahLBUj8VqK4fYdtZfWR4Bmj1pSZwJfJ5cT3a8UCYeiQGPc/exec";
 
 const MAX_CHART_POINTS = 20;
 
@@ -308,7 +319,7 @@ function initMQTT() {
         const data = JSON.parse(message.payloadString);
         lastTelemetryTime = Date.now();
 
-        // Update Indikator ESP32 Online
+        // Indikator ESP32 Online
         const espPing = document.getElementById("esp-status-ping");
         const espText = document.getElementById("esp-status-text");
         if (espPing) espPing.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
@@ -317,11 +328,11 @@ function initMQTT() {
           espText.className = "text-xs font-bold text-emerald-400";
         }
 
-        // Telemetri Sensor Kualitas Air & Tegangan
+        // Tampilan Kartu Sensor Real-Time
         if (data.ph !== undefined) document.getElementById("val-ph").innerText = data.ph.toFixed(2);
         if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
         
-        // HITUNG DOSIS MURNI ML (TIDAK TERKUNCI DI 40.00)
+        // Hitung Dosis Murni ML Real-time
         let realDosis = 0;
         if (data.ph !== undefined && data.turb !== undefined) {
           realDosis = 63.8948 + (-3.5321 * data.ph) + (0.071557 * data.turb);
@@ -333,13 +344,8 @@ function initMQTT() {
 
         if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(2) + " V";
         if (data.v_pan !== undefined) document.getElementById("val-vpan").innerText = data.v_pan.toFixed(2) + " V";
-        
-        // Pembacaan Tegangan ESP32 Dinamis
-        if (data.v_esp !== undefined) {
-          document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
-        }
+        if (data.v_esp !== undefined) document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
 
-        // Suhu Internal ESP32-S3
         if (data.temp_esp !== undefined) {
           const tempVal = data.temp_esp;
           const tempEl = document.getElementById("val-temp-esp");
@@ -347,7 +353,6 @@ function initMQTT() {
 
           if (tempEl && descEl) {
             tempEl.innerText = tempVal.toFixed(1) + " °C";
-
             if (tempVal >= 65.0) {
               tempEl.className = "text-2xl font-black text-red-500 transition-colors";
               descEl.className = "text-[10px] font-bold text-red-400 mt-0.5";
@@ -360,7 +365,6 @@ function initMQTT() {
           }
         }
 
-        // Status Sumber Listrik Relay
         const relayTxt = document.getElementById("val-relay-status");
         if (relayTxt && data.relay !== undefined) {
           if (data.relay) {
@@ -372,16 +376,29 @@ function initMQTT() {
           }
         }
 
-        // Push data ke grafik
+        // Push ke grafik
         if (data.ph !== undefined && data.turb !== undefined) {
           pushChartData(data.ph, data.turb);
         }
 
-        // Auto Log ke Google Spreadsheet tiap 5 Menit (300.000 ms) via Browser Web
+        // ============================================================
+        // AKUMULASI SAMPEL UNTUK RATA-RATA 5 MENIT
+        // ============================================================
+        if (data.ph !== undefined && data.turb !== undefined) {
+          batchSamples.phSum += data.ph;
+          batchSamples.turbSum += data.turb;
+          batchSamples.vbatSum += (data.v_bat || 0);
+          batchSamples.vpanSum += (data.v_pan || 0);
+          batchSamples.tempSum += (data.temp_esp || 0);
+          batchSamples.relayStatusLast = data.relay ? "PLN" : "BATERAI/SOLAR";
+          batchSamples.count += 1;
+        }
+
+        // Cek apakah sudah berjalan selama 5 Menit (300.000 ms)
         const nowTs = Date.now();
-        if (nowTs - lastWebSheetLogTime > 300000 || lastWebSheetLogTime === 0) {
+        if (nowTs - lastWebSheetLogTime >= 300000 && batchSamples.count > 0) {
           lastWebSheetLogTime = nowTs;
-          sendTelemetryToGoogleSheetsFromWeb(data, realDosis);
+          sendAverageBatchToGoogleSheets();
         }
 
       } catch (e) {
@@ -410,22 +427,29 @@ function initMQTT() {
   });
 }
 
-// Kirim Data Telemetri 8 Kolom ke Google Sheets via Fetch API
-function sendTelemetryToGoogleSheetsFromWeb(data, calculatedDosis) {
-  if (!GSHEET_WEBAPP_URL || GSHEET_WEBAPP_URL.includes("GANTI_DENGAN_URL")) return;
+// Hitung Nilai Rata-rata dan Kirim ke Google Sheets
+function sendAverageBatchToGoogleSheets() {
+  if (!GSHEET_WEBAPP_URL || GSHEET_WEBAPP_URL.includes("GANTI_DENGAN_URL") || batchSamples.count === 0) return;
 
-  const dosisFinal = (calculatedDosis !== undefined && calculatedDosis > 0) 
-    ? calculatedDosis.toFixed(2) 
-    : ((data.dosis !== undefined) ? data.dosis.toFixed(2) : "0");
+  // 1. Hitung Nilai Rata-rata dari Semua Sampel 5 Menit Terakhir
+  const avgPh = batchSamples.phSum / batchSamples.count;
+  const avgTurb = batchSamples.turbSum / batchSamples.count;
+  const avgVbat = batchSamples.vbatSum / batchSamples.count;
+  const avgVpan = batchSamples.vpanSum / batchSamples.count;
+  const avgTemp = batchSamples.tempSum / batchSamples.count;
+  
+  // 2. Hitung Dosis Koagulan dari Nilai Rata-rata pH & Turbidity
+  let avgDosis = 63.8948 + (-3.5321 * avgPh) + (0.071557 * avgTurb);
+  if (avgDosis < 0) avgDosis = 0;
 
   const payload = new URLSearchParams({
-    ph: (data.ph !== undefined) ? data.ph.toFixed(2) : "0",
-    turbidity: (data.turb !== undefined) ? data.turb.toFixed(1) : "0",
-    koagulan: dosisFinal,
-    v_bat: (data.v_bat !== undefined) ? data.v_bat.toFixed(2) : "0",
-    v_panel: (data.v_pan !== undefined) ? data.v_pan.toFixed(2) : "0",
-    relay: data.relay ? "PLN" : "BATERAI/SOLAR",
-    temp_esp: (data.temp_esp !== undefined) ? data.temp_esp.toFixed(1) : "0"
+    ph: avgPh.toFixed(2),
+    turbidity: avgTurb.toFixed(1),
+    koagulan: avgDosis.toFixed(2),
+    v_bat: avgVbat.toFixed(2),
+    v_panel: avgVpan.toFixed(2),
+    relay: batchSamples.relayStatusLast,
+    temp_esp: avgTemp.toFixed(1)
   });
 
   fetch(GSHEET_WEBAPP_URL, {
@@ -435,10 +459,18 @@ function sendTelemetryToGoogleSheetsFromWeb(data, calculatedDosis) {
     body: payload.toString()
   })
   .then(() => {
-    console.log("[GSHEETS] Telemetri 8 kolom (Dosis Riil) berhasil dikirim ke Spreadsheet!");
+    console.log(`[GSHEETS] Berhasil kirim Rata-rata dari ${batchSamples.count} sampel data!`);
+    
+    // Reset buffer untuk siklus 5 menit berikutnya
+    batchSamples.phSum = 0;
+    batchSamples.turbSum = 0;
+    batchSamples.vbatSum = 0;
+    batchSamples.vpanSum = 0;
+    batchSamples.tempSum = 0;
+    batchSamples.count = 0;
   })
   .catch((err) => {
-    console.error("[GSHEETS] Gagal mengirim ke Spreadsheet:", err);
+    console.error("[GSHEETS] Gagal mengirim data rata-rata:", err);
   });
 }
 
