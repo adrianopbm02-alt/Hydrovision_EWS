@@ -16,12 +16,14 @@ let batchSamples = {
   vbatSum: 0,
   vpanSum: 0,
   tempSum: 0,
+  adcPhSum: 0,
+  adcTurbSum: 0,
   relayStatusLast: "BATERAI/SOLAR",
   count: 0
 };
 
 // URL Deployment Apps Script
-const GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxdI6_nWo9qzFERMl-nePahLBUj8VqK4fYdtZfWR4Bmj1pSZwJfJ5cT3a8UCYeiQGPc/exec";
+const GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzcBJDBZDf4KK6G0hfTdl7_FZD4pxr6rEaWhSRGkKLqINt1d04-6qO8OXZT_1GYeAUH/exec";
 
 const MAX_CHART_POINTS = 20;
 
@@ -329,21 +331,18 @@ function initMQTT() {
         }
 
         // ========================================================
-        // 1. FILTER SOFTWARE TEGANGAN PANEL SURYA (ELIMINASI BOCORAN AKI)
+        // 1. FILTER SOFTWARE TEGANGAN PANEL SURYA
         // ========================================================
         let rawVpan = (data.v_pan !== undefined) ? data.v_pan : 0;
         let vBat = (data.v_bat !== undefined) ? data.v_bat : 0;
         let filteredVPan = rawVpan;
 
-        // Jika selisih tegangan solar dengan aki sangat dekat (backfeed SCC)
-        // dan tidak lebih tinggi dari baterai + 0.3V (tidak ada arus pengisian aktif),
-        // maka anggap panel surya 0.00 V (malam / tidak ada sinar matahari)
         if (rawVpan <= (vBat + 0.30) && Math.abs(rawVpan - vBat) <= 0.25) {
           filteredVPan = 0.0;
         }
 
         // ========================================================
-        // 2. HITUNG DOSIS MURNI ML (TIDAK TERKUNCI DI 40.00 PPM)
+        // 2. HITUNG DOSIS MURNI ML
         // ========================================================
         let realDosis = 0;
         if (data.ph !== undefined && data.turb !== undefined) {
@@ -359,10 +358,20 @@ function initMQTT() {
         if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
         if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(2) + " V";
         
-        // Tampilkan tegangan panel surya yang sudah difilter
         document.getElementById("val-vpan").innerText = filteredVPan.toFixed(2) + " V";
-        
         if (data.v_esp !== undefined) document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
+
+        // ========================================================
+        // 3. MONITOR RAW ADC KHUSUS ADMIN MODE
+        // ========================================================
+        const elAdcPh = document.getElementById("admin-val-adc-ph");
+        const elAdcTurb = document.getElementById("admin-val-adc-turb");
+        if (elAdcPh && data.adc_ph !== undefined) {
+          elAdcPh.innerText = data.adc_ph.toFixed(1);
+        }
+        if (elAdcTurb && data.adc_turb !== undefined) {
+          elAdcTurb.innerText = data.adc_turb.toFixed(1);
+        }
 
         if (data.temp_esp !== undefined) {
           const tempVal = data.temp_esp;
@@ -400,19 +409,21 @@ function initMQTT() {
         }
 
         // ============================================================
-        // 3. AKUMULASI SAMPEL UNTUK RATA-RATA 5 MENIT
+        // 4. AKUMULASI SAMPEL UNTUK RATA-RATA 5 MENIT
         // ============================================================
         if (data.ph !== undefined && data.turb !== undefined) {
           batchSamples.phSum += data.ph;
           batchSamples.turbSum += data.turb;
           batchSamples.vbatSum += (data.v_bat || 0);
-          batchSamples.vpanSum += filteredVPan; // Nilai solar terfilter
+          batchSamples.vpanSum += filteredVPan;
           batchSamples.tempSum += (data.temp_esp || 0);
+          batchSamples.adcPhSum += (data.adc_ph || 0);
+          batchSamples.adcTurbSum += (data.adc_turb || 0);
           batchSamples.relayStatusLast = data.relay ? "PLN" : "BATERAI/SOLAR";
           batchSamples.count += 1;
         }
 
-        // Cek apakah sudah berjalan selama 5 Menit (300.000 ms)
+        // Cek pengiriman 5 Menit
         const nowTs = Date.now();
         if (nowTs - lastWebSheetLogTime >= 300000 && batchSamples.count > 0) {
           lastWebSheetLogTime = nowTs;
@@ -449,14 +460,14 @@ function initMQTT() {
 function sendAverageBatchToGoogleSheets() {
   if (!GSHEET_WEBAPP_URL || GSHEET_WEBAPP_URL.includes("GANTI_DENGAN_URL") || batchSamples.count === 0) return;
 
-  // 1. Hitung Nilai Rata-rata dari Semua Sampel 5 Menit Terakhir
   const avgPh = batchSamples.phSum / batchSamples.count;
   const avgTurb = batchSamples.turbSum / batchSamples.count;
   const avgVbat = batchSamples.vbatSum / batchSamples.count;
   const avgVpan = batchSamples.vpanSum / batchSamples.count;
   const avgTemp = batchSamples.tempSum / batchSamples.count;
+  const avgAdcPh = batchSamples.adcPhSum / batchSamples.count;
+  const avgAdcTurb = batchSamples.adcTurbSum / batchSamples.count;
   
-  // 2. Hitung Dosis Koagulan dari Nilai Rata-rata pH & Turbidity
   let avgDosis = 63.8948 + (-3.5321 * avgPh) + (0.071557 * avgTurb);
   if (avgDosis < 0) avgDosis = 0;
 
@@ -467,7 +478,9 @@ function sendAverageBatchToGoogleSheets() {
     v_bat: avgVbat.toFixed(2),
     v_panel: avgVpan.toFixed(2),
     relay: batchSamples.relayStatusLast,
-    temp_esp: avgTemp.toFixed(1)
+    temp_esp: avgTemp.toFixed(1),
+    adc_ph: avgAdcPh.toFixed(1),
+    adc_turb: avgAdcTurb.toFixed(1)
   });
 
   fetch(GSHEET_WEBAPP_URL, {
@@ -479,12 +492,13 @@ function sendAverageBatchToGoogleSheets() {
   .then(() => {
     console.log(`[GSHEETS] Berhasil kirim Rata-rata dari ${batchSamples.count} sampel data!`);
     
-    // Reset buffer untuk siklus 5 menit berikutnya
     batchSamples.phSum = 0;
     batchSamples.turbSum = 0;
     batchSamples.vbatSum = 0;
     batchSamples.vpanSum = 0;
     batchSamples.tempSum = 0;
+    batchSamples.adcPhSum = 0;
+    batchSamples.adcTurbSum = 0;
     batchSamples.count = 0;
   })
   .catch((err) => {

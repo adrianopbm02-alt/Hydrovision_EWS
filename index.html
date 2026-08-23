@@ -223,6 +223,34 @@
         <!-- PANEL PARAMETER & KALIBRASI (ADMIN ONLY) -->
         <div id="admin-panel" class="hidden space-y-6">
 
+          <!-- KARTU DIAGNOSTIK ADC MENTAH KHUSUS ADMIN (PATOKAN KALIBRASI USB SCC) -->
+          <div class="p-6 rounded-3xl bg-slate-900 border border-purple-500/40 shadow-xl">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <i class="fa-solid fa-microchip text-purple-400"></i> Live Raw ADC Sensor (Diagnostik Lapangan)
+              </h3>
+              <span class="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Real-time ADC</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">Gunakan nilai pembacaan ADC mentah di bawah ini sebagai patokan titik kalibrasi saat ESP32-S3 ditenagai lewat port USB SCC.</p>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800">
+                <p class="text-[10px] text-slate-400 font-semibold uppercase">Raw ADC pH (GPIO 7)</p>
+                <div class="flex items-baseline gap-1.5 mt-1.5">
+                  <span id="admin-val-adc-ph" class="text-3xl font-black text-blue-400">0.0</span>
+                  <span class="text-xs text-slate-500 font-bold">ADC</span>
+                </div>
+              </div>
+              <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800">
+                <p class="text-[10px] text-slate-400 font-semibold uppercase">Raw ADC Turbidity (GPIO 1)</p>
+                <div class="flex items-baseline gap-1.5 mt-1.5">
+                  <span id="admin-val-adc-turb" class="text-3xl font-black text-cyan-400">0.0</span>
+                  <span class="text-xs text-slate-500 font-bold">ADC</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- 1. KOREKSI OFFSET SENSOR (pH & Turbidity) -->
           <div class="bg-slate-900 p-6 rounded-3xl border border-blue-500/40 shadow-xl">
             <div class="flex items-center justify-between mb-2">
@@ -257,7 +285,7 @@
               </h3>
               <span class="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold px-2 py-0.5 rounded uppercase">Admin Exclusive</span>
             </div>
-            <p class="text-xs text-slate-400 mb-4">Ubah koefisien regresi ($c_0, c_1, c_2$) secara OTA dari jarak jauh ke ESP32-S3.</p>
+            <p class="text-xs text-slate-400 mb-4">Ubah koefisien regresi (c0, c1, c2) secara OTA dari jarak jauh ke ESP32-S3.</p>
             
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
               <div>
