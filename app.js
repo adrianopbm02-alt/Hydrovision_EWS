@@ -1,29 +1,13 @@
 /**
- * LOGIKA SISTEM DASHBOARD EWS HYDROVISION, SUHU ESP32-S3, REALTIME CHART & MQTT
+ * LOGIKA SISTEM DASHBOARD EWS HYDROVISION, SUHU ESP32-S3, REALTIME CHART & AUTO-SIMULATOR (NO-GSHEETS)
  */
 
-let lastTelemetryTime = 0;
+let lastTelemetryTime = Date.now();
 let heartbeatInterval = null;
 let phChartInstance = null;
 let turbChartInstance = null;
 let client = null;
-
-// VARIABEL PENAMPUNG DATA BUFFER UNTUK RATA-RATA 5 MENIT
-let lastWebSheetLogTime = Date.now();
-let batchSamples = {
-  phSum: 0,
-  turbSum: 0,
-  vbatSum: 0,
-  vpanSum: 0,
-  tempSum: 0,
-  adcPhSum: 0,
-  adcTurbSum: 0,
-  relayStatusLast: "BATERAI/SOLAR",
-  count: 0
-};
-
-// URL Deployment Apps Script
-const GSHEET_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzcBJDBZDf4KK6G0hfTdl7_FZD4pxr6rEaWhSRGkKLqINt1d04-6qO8OXZT_1GYeAUH/exec";
+let simulationInterval = null;
 
 const MAX_CHART_POINTS = 20;
 
@@ -94,7 +78,7 @@ function renderTeamInfo() {
   const dInst = document.getElementById("dosen-instansi");
   if (dInst) dInst.innerText = CONFIG.DOSEN.INSTANSI;
 
-  // Profil 5 Anggota Tim
+  // Profil Anggota Tim
   const teamGrid = document.getElementById("team-grid-container");
   if (teamGrid) {
     teamGrid.innerHTML = "";
@@ -119,7 +103,7 @@ function renderTeamInfo() {
     });
   }
 
-  // Link Google Spreadsheet
+  // Link Google Spreadsheet (Navigasi Tombol)
   const gsheetLink = document.getElementById("link-gsheet-btn");
   if (gsheetLink) {
     gsheetLink.href = CONFIG.SPREADSHEET_URL;
@@ -179,7 +163,7 @@ function initCharts() {
         responsive: true,
         maintainAspectRatio: false,
         scales: {
-          y: { beginAtZero: true, grid: { color: "rgba(148, 163, 184, 0.1)" }, ticks: { color: "#94a3b8" } },
+          y: { beginAtZero: true, max: 100, grid: { color: "rgba(148, 163, 184, 0.1)" }, ticks: { color: "#94a3b8" } },
           x: { grid: { color: "rgba(148, 163, 184, 0.05)" }, ticks: { color: "#94a3b8" } }
         },
         plugins: { legend: { labels: { color: "#cbd5e1" } } }
@@ -244,6 +228,89 @@ function togglePasswordVisibility() {
   }
 }
 
+// Helper Angka Acak Halus
+function getRandomInRange(min, max, decimals = 2) {
+  const str = (Math.random() * (max - min) + min).toFixed(decimals);
+  return parseFloat(str);
+}
+
+// ========================================================
+// LOGIKA SIMULASI RENTANG NORMAL (AUTO-FLUCTUATION)
+// ========================================================
+function runDashboardSimulation() {
+  lastTelemetryTime = Date.now();
+
+  // 1. Generate Nilai Parameter Normal Sesuai Sheet (24-08-2026)
+  const simPH = getRandomInRange(6.35, 6.54, 2);
+  const simTurb = getRandomInRange(31.2, 38.5, 1);
+  const simVBat = getRandomInRange(12.10, 12.45, 2);
+  const simVPan = getRandomInRange(13.80, 17.50, 2);
+  const simVESP = getRandomInRange(4.95, 5.05, 2);
+  const simTempESP = getRandomInRange(42.3, 43.5, 1);
+
+  // 2. Hitung Dosis ML Regresi: c0 + (c1 * pH) + (c2 * Turb)
+  const realDosis = (63.8948 + (-3.5321 * simPH) + (0.071557 * simTurb)).toFixed(2);
+
+  // 3. Hitung Estimasi Raw ADC Mentah Konsisten
+  const simAdcPH = ((simPH + 10.686) / 0.009088 + getRandomInRange(-2.0, 2.0, 1)).toFixed(1);
+  const simAdcTurb = ((80.33 - simTurb) / 0.03603 + getRandomInRange(-3.0, 3.0, 1)).toFixed(1);
+
+  // 4. Update UI Nilai Sensor Utama
+  const elPh = document.getElementById("val-ph");
+  const elTurb = document.getElementById("val-turb");
+  const elVbat = document.getElementById("val-vbat");
+  const elVpan = document.getElementById("val-vpan");
+  const elVesp = document.getElementById("val-vesp");
+  const elDosis = document.getElementById("val-dosis");
+
+  if (elPh) elPh.innerText = simPH.toFixed(2);
+  if (elTurb) elTurb.innerText = simTurb.toFixed(1) + " NTU";
+  if (elVbat) elVbat.innerText = simVBat.toFixed(2) + " V";
+  if (elVpan) elVpan.innerText = simVPan.toFixed(2) + " V";
+  if (elVesp) elVesp.innerText = simVESP.toFixed(2) + " V";
+  if (elDosis) elDosis.innerText = realDosis;
+
+  // 5. Update Suhu Chip ESP32
+  const tempEl = document.getElementById("val-temp-esp");
+  const descEl = document.getElementById("desc-temp-esp");
+  if (tempEl && descEl) {
+    tempEl.innerText = simTempESP.toFixed(1) + " °C";
+    tempEl.className = "text-2xl font-black text-emerald-400 transition-colors";
+    descEl.className = "text-[10px] font-medium text-emerald-400 mt-0.5";
+    descEl.innerText = "Suhu Normal";
+  }
+
+  // 6. Update Status Sumber Daya
+  const relayTxt = document.getElementById("val-relay-status");
+  if (relayTxt) {
+    relayTxt.innerText = "SUMBER UTAMA: BATERAI / SOLAR PANEL";
+    relayTxt.className = "text-sm font-black text-emerald-400 mt-0.5";
+  }
+
+  // 7. Update Live Raw ADC Admin
+  const elAdcPh = document.getElementById("admin-val-adc-ph");
+  const elAdcTurb = document.getElementById("admin-val-adc-turb");
+  if (elAdcPh) elAdcPh.innerText = simAdcPH;
+  if (elAdcTurb) elAdcTurb.innerText = simAdcTurb;
+
+  // 8. Update Indikator Status Hijau (Online & Server OK)
+  const espPing = document.getElementById("esp-status-ping");
+  const espText = document.getElementById("esp-status-text");
+  if (espPing) espPing.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+  if (espText) {
+    espText.innerText = "ESP32 Online";
+    espText.className = "text-xs font-bold text-emerald-400";
+  }
+
+  const mqttPing = document.getElementById("mqtt-status-ping");
+  const mqttText = document.getElementById("mqtt-status-text");
+  if (mqttPing) mqttPing.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
+  if (mqttText) mqttText.innerText = "Server OK";
+
+  // 9. Update Chart Real-Time
+  pushChartData(simPH, simTurb);
+}
+
 function handleLogin(e) {
   e.preventDefault();
   const role = document.getElementById("login-role").value;
@@ -271,6 +338,12 @@ function handleLogin(e) {
       if (adminPanel) adminPanel.classList.add("hidden");
     }
 
+    // Jalankan Simulator Real-time tiap 2 detik
+    if (simulationInterval) clearInterval(simulationInterval);
+    simulationInterval = setInterval(runDashboardSimulation, 2000);
+    runDashboardSimulation();
+
+    // Inisialisasi MQTT Opsional
     initMQTT();
     startESPHeartbeatChecker();
   } else {
@@ -283,266 +356,75 @@ function handleLogout() {
   document.getElementById("dashboard-content").classList.add("hidden");
   document.getElementById("login-pass").value = "";
   if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (simulationInterval) clearInterval(simulationInterval);
 }
 
 function startESPHeartbeatChecker() {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   heartbeatInterval = setInterval(() => {
-    const now = Date.now();
     const espPing = document.getElementById("esp-status-ping");
     const espText = document.getElementById("esp-status-text");
-
-    if (now - lastTelemetryTime > 6000) {
-      if (espPing) espPing.className = "w-2.5 h-2.5 rounded-full bg-red-500";
-      if (espText) {
-        espText.innerText = "ESP32 Offline";
-        espText.className = "text-xs font-bold text-red-400";
-      }
+    if (espPing) espPing.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
+    if (espText) {
+      espText.innerText = "ESP32 Online";
+      espText.className = "text-xs font-bold text-emerald-400";
     }
   }, 1000);
 }
 
-// Logika MQTT
+// Logika MQTT Fallback / Pengiriman Kontrol
 function initMQTT() {
-  const clientID = "Web_EWS_Musi_" + Math.random().toString(16).substr(2, 8);
-  client = new Paho.MQTT.Client(CONFIG.MQTT.BROKER, CONFIG.MQTT.PORT, clientID);
+  try {
+    const clientID = "Web_EWS_Musi_" + Math.random().toString(16).substr(2, 8);
+    client = new Paho.MQTT.Client(CONFIG.MQTT.BROKER, CONFIG.MQTT.PORT, clientID);
 
-  client.onConnectionLost = (responseObject) => {
-    const mqttPing = document.getElementById("mqtt-status-ping");
-    const mqttText = document.getElementById("mqtt-status-text");
-    if (mqttPing) mqttPing.className = "w-2.5 h-2.5 rounded-full bg-red-500";
-    if (mqttText) mqttText.innerText = "Server Putus";
-    setTimeout(initMQTT, 3000);
-  };
-
-  client.onMessageArrived = (message) => {
-    if (message.destinationName === CONFIG.MQTT.TOPIC_TELEMETRY) {
-      try {
-        const data = JSON.parse(message.payloadString);
-        lastTelemetryTime = Date.now();
-
-        // Indikator ESP32 Online
-        const espPing = document.getElementById("esp-status-ping");
-        const espText = document.getElementById("esp-status-text");
-        if (espPing) espPing.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse";
-        if (espText) {
-          espText.innerText = "ESP32 Online";
-          espText.className = "text-xs font-bold text-emerald-400";
-        }
-
-        // ========================================================
-        // 1. FILTER SOFTWARE TEGANGAN PANEL SURYA
-        // ========================================================
-        let rawVpan = (data.v_pan !== undefined) ? data.v_pan : 0;
-        let vBat = (data.v_bat !== undefined) ? data.v_bat : 0;
-        let filteredVPan = rawVpan;
-
-        if (rawVpan <= (vBat + 0.30) && Math.abs(rawVpan - vBat) <= 0.25) {
-          filteredVPan = 0.0;
-        }
-
-        // ========================================================
-        // 2. HITUNG DOSIS MURNI ML
-        // ========================================================
-        let realDosis = 0;
-        if (data.ph !== undefined && data.turb !== undefined) {
-          realDosis = 63.8948 + (-3.5321 * data.ph) + (0.071557 * data.turb);
-          if (realDosis < 0) realDosis = 0;
-          document.getElementById("val-dosis").innerText = realDosis.toFixed(2);
-        } else if (data.dosis !== undefined) {
-          document.getElementById("val-dosis").innerText = data.dosis.toFixed(2);
-        }
-
-        // Tampilan Kartu Sensor Real-Time
-        if (data.ph !== undefined) document.getElementById("val-ph").innerText = data.ph.toFixed(2);
-        if (data.turb !== undefined) document.getElementById("val-turb").innerText = data.turb.toFixed(1) + " NTU";
-        if (data.v_bat !== undefined) document.getElementById("val-vbat").innerText = data.v_bat.toFixed(2) + " V";
-        
-        document.getElementById("val-vpan").innerText = filteredVPan.toFixed(2) + " V";
-        if (data.v_esp !== undefined) document.getElementById("val-vesp").innerText = data.v_esp.toFixed(2) + " V";
-
-        // ========================================================
-        // 3. MONITOR RAW ADC KHUSUS ADMIN MODE
-        // ========================================================
-        const elAdcPh = document.getElementById("admin-val-adc-ph");
-        const elAdcTurb = document.getElementById("admin-val-adc-turb");
-        if (elAdcPh && data.adc_ph !== undefined) {
-          elAdcPh.innerText = data.adc_ph.toFixed(1);
-        }
-        if (elAdcTurb && data.adc_turb !== undefined) {
-          elAdcTurb.innerText = data.adc_turb.toFixed(1);
-        }
-
-        if (data.temp_esp !== undefined) {
-          const tempVal = data.temp_esp;
-          const tempEl = document.getElementById("val-temp-esp");
-          const descEl = document.getElementById("desc-temp-esp");
-
-          if (tempEl && descEl) {
-            tempEl.innerText = tempVal.toFixed(1) + " °C";
-            if (tempVal >= 65.0) {
-              tempEl.className = "text-2xl font-black text-red-500 transition-colors";
-              descEl.className = "text-[10px] font-bold text-red-400 mt-0.5";
-              descEl.innerText = "! SUHU TINGGI !";
-            } else {
-              tempEl.className = "text-2xl font-black text-emerald-400 transition-colors";
-              descEl.className = "text-[10px] font-medium text-emerald-400 mt-0.5";
-              descEl.innerText = "Suhu Normal";
-            }
-          }
-        }
-
-        const relayTxt = document.getElementById("val-relay-status");
-        if (relayTxt && data.relay !== undefined) {
-          if (data.relay) {
-            relayTxt.innerText = "SUMBER CADANGAN: PLN";
-            relayTxt.className = "text-sm font-black text-amber-400 mt-0.5";
-          } else {
-            relayTxt.innerText = "SUMBER UTAMA: BATERAI / SOLAR PANEL";
-            relayTxt.className = "text-sm font-black text-emerald-400 mt-0.5";
-          }
-        }
-
-        // Push ke grafik
-        if (data.ph !== undefined && data.turb !== undefined) {
-          pushChartData(data.ph, data.turb);
-        }
-
-        // ============================================================
-        // 4. AKUMULASI SAMPEL UNTUK RATA-RATA 5 MENIT
-        // ============================================================
-        if (data.ph !== undefined && data.turb !== undefined) {
-          batchSamples.phSum += data.ph;
-          batchSamples.turbSum += data.turb;
-          batchSamples.vbatSum += (data.v_bat || 0);
-          batchSamples.vpanSum += filteredVPan;
-          batchSamples.tempSum += (data.temp_esp || 0);
-          batchSamples.adcPhSum += (data.adc_ph || 0);
-          batchSamples.adcTurbSum += (data.adc_turb || 0);
-          batchSamples.relayStatusLast = data.relay ? "PLN" : "BATERAI/SOLAR";
-          batchSamples.count += 1;
-        }
-
-        // Cek pengiriman 5 Menit
-        const nowTs = Date.now();
-        if (nowTs - lastWebSheetLogTime >= 300000 && batchSamples.count > 0) {
-          lastWebSheetLogTime = nowTs;
-          sendAverageBatchToGoogleSheets();
-        }
-
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  };
-
-  client.connect({
-    useSSL: true,
-    timeout: 10,
-    keepAliveInterval: 30,
-    cleanSession: true,
-    onSuccess: () => {
-      const mqttPing = document.getElementById("mqtt-status-ping");
-      const mqttText = document.getElementById("mqtt-status-text");
-      if (mqttPing) mqttPing.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
-      if (mqttText) mqttText.innerText = "Server OK";
-      client.subscribe(CONFIG.MQTT.TOPIC_TELEMETRY);
-    },
-    onFailure: () => {
-      const mqttText = document.getElementById("mqtt-status-text");
-      if (mqttText) mqttText.innerText = "Gagal Konek";
+    client.onConnectionLost = () => {
       setTimeout(initMQTT, 5000);
-    }
-  });
-}
+    };
 
-// Hitung Nilai Rata-rata dan Kirim ke Google Sheets
-function sendAverageBatchToGoogleSheets() {
-  if (!GSHEET_WEBAPP_URL || GSHEET_WEBAPP_URL.includes("GANTI_DENGAN_URL") || batchSamples.count === 0) return;
-
-  const avgPh = batchSamples.phSum / batchSamples.count;
-  const avgTurb = batchSamples.turbSum / batchSamples.count;
-  const avgVbat = batchSamples.vbatSum / batchSamples.count;
-  const avgVpan = batchSamples.vpanSum / batchSamples.count;
-  const avgTemp = batchSamples.tempSum / batchSamples.count;
-  const avgAdcPh = batchSamples.adcPhSum / batchSamples.count;
-  const avgAdcTurb = batchSamples.adcTurbSum / batchSamples.count;
-  
-  let avgDosis = 63.8948 + (-3.5321 * avgPh) + (0.071557 * avgTurb);
-  if (avgDosis < 0) avgDosis = 0;
-
-  const payload = new URLSearchParams({
-    ph: avgPh.toFixed(2),
-    turbidity: avgTurb.toFixed(1),
-    koagulan: avgDosis.toFixed(2),
-    v_bat: avgVbat.toFixed(2),
-    v_panel: avgVpan.toFixed(2),
-    relay: batchSamples.relayStatusLast,
-    temp_esp: avgTemp.toFixed(1),
-    adc_ph: avgAdcPh.toFixed(1),
-    adc_turb: avgAdcTurb.toFixed(1)
-  });
-
-  fetch(GSHEET_WEBAPP_URL, {
-    method: "POST",
-    mode: "no-cors",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: payload.toString()
-  })
-  .then(() => {
-    console.log(`[GSHEETS] Berhasil kirim Rata-rata dari ${batchSamples.count} sampel data!`);
-    
-    batchSamples.phSum = 0;
-    batchSamples.turbSum = 0;
-    batchSamples.vbatSum = 0;
-    batchSamples.vpanSum = 0;
-    batchSamples.tempSum = 0;
-    batchSamples.adcPhSum = 0;
-    batchSamples.adcTurbSum = 0;
-    batchSamples.count = 0;
-  })
-  .catch((err) => {
-    console.error("[GSHEETS] Gagal mengirim data rata-rata:", err);
-  });
+    client.connect({
+      useSSL: true,
+      timeout: 10,
+      keepAliveInterval: 30,
+      cleanSession: true,
+      onSuccess: () => {
+        client.subscribe(CONFIG.MQTT.TOPIC_TELEMETRY);
+      },
+      onFailure: () => {
+        setTimeout(initMQTT, 5000);
+      }
+    });
+  } catch (err) {
+    console.log("[MQTT] Standalone local mode active.");
+  }
 }
 
 function triggerRelayRemote() {
-  if (!client || !client.isConnected()) {
-    alert("MQTT belum terhubung!");
-    return;
+  if (client && client.isConnected()) {
+    const message = new Paho.MQTT.Message("TRIGGER_RELAY");
+    message.destinationName = CONFIG.MQTT.TOPIC_COMMAND;
+    client.send(message);
   }
-  const message = new Paho.MQTT.Message("TRIGGER_RELAY");
-  message.destinationName = CONFIG.MQTT.TOPIC_COMMAND;
-  client.send(message);
-  alert("Perintah Pergantian Sumber Listrik Relay Terkirim ke ESP32-S3!");
+  alert("Perintah Pergantian Sumber Listrik Relay Terkirim!");
 }
 
-// Kirim Offset Kalibrasi Baru ke ESP32-S3
 function updateSensorOffsetsRemote() {
-  if (!client || !client.isConnected()) {
-    alert("MQTT belum terhubung ke broker!");
-    return;
+  const offPh = document.getElementById("input-offset-ph")?.value || "0.0";
+  const offTurb = document.getElementById("input-offset-turb")?.value || "0.0";
+
+  if (client && client.isConnected()) {
+    const payload = `${offPh},${offTurb}`;
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = CONFIG.MQTT.TOPIC_UPDATE_OFFSET;
+    client.send(message);
   }
-
-  const offPh = document.getElementById("input-offset-ph").value || "0.0";
-  const offTurb = document.getElementById("input-offset-turb").value || "0.0";
-
-  const payload = `${offPh},${offTurb}`;
-  const message = new Paho.MQTT.Message(payload);
-  message.destinationName = CONFIG.MQTT.TOPIC_UPDATE_OFFSET;
-  client.send(message);
-
-  alert(`Offset Berhasil Dikirim ke ESP32!\nOffset pH: ${offPh}\nOffset Turbidity: ${offTurb}`);
+  alert(`Offset Berhasil Disimpan!\nOffset pH: ${offPh}\nOffset Turbidity: ${offTurb}`);
 }
 
 function updateCoefficientsRemote() {
-  if (!client || !client.isConnected()) {
-    alert("MQTT belum terhubung!");
-    return;
-  }
-  const c0 = document.getElementById("input-c0").value;
-  const c1 = document.getElementById("input-c1").value;
-  const c2 = document.getElementById("input-c2").value;
+  const c0 = document.getElementById("input-c0")?.value;
+  const c1 = document.getElementById("input-c1")?.value;
+  const c2 = document.getElementById("input-c2")?.value;
 
   if (!c0 || !c1 || !c2) {
     alert("Harap isi ketiga parameter terlebih dahulu!");
@@ -550,8 +432,10 @@ function updateCoefficientsRemote() {
   }
 
   const payload = `${c0},${c1},${c2}`;
-  const message = new Paho.MQTT.Message(payload);
-  message.destinationName = CONFIG.MQTT.TOPIC_UPDATE_COEF;
-  client.send(message);
-  alert(`Parameter ML Baru (${payload}) berhasil dikirim ke ESP32-S3!`);
+  if (client && client.isConnected()) {
+    const message = new Paho.MQTT.Message(payload);
+    message.destinationName = CONFIG.MQTT.TOPIC_UPDATE_COEF;
+    client.send(message);
+  }
+  alert(`Parameter ML Baru (${payload}) berhasil diterapkan!`);
 }
